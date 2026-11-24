@@ -235,14 +235,14 @@ export default function App() {
                     {expenses.map((e) => (
                       <tr key={e.id}>
                         <td className="date">{niceDate(e.spent_on)}</td>
-                        <td>{e.vendor}</td>
-                        <td>
+                        <td className="vendor">{e.vendor}</td>
+                        <td className="cat">
                           <span className="chip">
                             <span className={"swatch " + catClass(e.category)}></span>
                             {e.category}
                           </span>
                         </td>
-                        <td className="num">{money(e.amount)}</td>
+                        <td className="num amount">{money(e.amount)}</td>
                       </tr>
                     ))}
                   </tbody>

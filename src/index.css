@@ -35,6 +35,8 @@ body {
     var(--page);
 }
 .wrap { max-width: 68rem; margin: 0 auto; padding: 2.5rem 1.25rem 4rem; display: grid; gap: 1.25rem; }
+/* Let every box shrink to fit small screens */
+.wrap > *, .kpis > *, .charts > * { min-width: 0; }
  
 /* ---------- Header ---------- */
 .top { display: flex; align-items: center; gap: 1rem; }
@@ -169,7 +171,36 @@ tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
  
 /* ---------- Phones and small windows ---------- */
 @media (max-width: 760px) {
-  .kpis, .charts { grid-template-columns: 1fr; }
-  h1 { font-size: 1.75rem; }
-  .kpi.hero .value { font-size: 2.4rem; }
+  .wrap { padding: 1.5rem 1rem 3rem; gap: 1rem; }
+  .charts { grid-template-columns: 1fr; }
+  .kpis { grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .kpi.hero { grid-column: 1 / -1; }
+  .kpi .value { font-size: 1.35rem; }
+  .kpi.hero .value { font-size: 2.6rem; }
+  h1 { font-size: 1.6rem; }
+  .logo { width: 2.75rem; height: 2.75rem; font-size: 1.35rem; }
+  .card { padding: 1.1rem; }
+}
+ 
+/* On phones, each expense becomes a two-line row instead of a wide table */
+@media (max-width: 560px) {
+  thead { display: none; }
+  tbody tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "vendor amount" "date cat" "action action";
+    gap: 0.15rem 0.75rem;
+    padding: 0.75rem 0;
+    border-bottom: 1px solid var(--card-edge);
+  }
+  tbody tr:last-child { border-bottom: 0; }
+  tbody td { padding: 0; border: 0; white-space: normal; }
+  td.vendor { grid-area: vendor; font-weight: 600; }
+  td.amount { grid-area: amount; font-weight: 600; }
+  td.date { grid-area: date; font-size: 0.85rem; }
+  td.cat { grid-area: cat; text-align: right; }
+  td.action { grid-area: action; text-align: left; }
+  td.action:empty { display: none; }
+  td.action button { margin-top: 0.4rem; }
+  .chip { font-size: 0.8rem; padding: 0.1rem 0.55rem; }
 }
