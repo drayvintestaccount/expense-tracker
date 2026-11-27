@@ -40,8 +40,85 @@ function lastDays(n) {
   return days;
 }
  
+// =====================================================================
+// LOGIN FORM: log in or create an account, or "Logged in as ..." once signed in
+// =====================================================================
+function LoginForm({ user }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [note, setNote] = useState("");
+ 
+  // ---------- Log in with an existing account ----------
+  async function logIn(event) {
+    event.preventDefault();
+    setNote("Logging in...");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) {
+      setNote(error.message);
+      return;
+    }
+    setNote("");
+    setPassword("");
+  }
+ 
+  // ---------- Create a brand-new account ----------
+  async function signUp(event) {
+    if (!event.currentTarget.form.reportValidity()) return; // boxes filled in?
+    setNote("Creating account...");
+    const { data, error } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (error) {
+      setNote(error.message);
+    } else if (!data.session) {
+      // Happens when "Confirm email" is turned ON in Supabase
+      setNote("Check your email for a confirmation link, then log in.");
+    } else {
+      setNote("");
+      setPassword("");
+    }
+  }
+ 
+  // ---------- Already logged in ----------
+  if (user) {
+    return (
+      <div className="card who">
+        <span>
+          Logged in as <strong>{user.email}</strong>
+        </span>
+        <button type="button" className="ghost" onClick={() => supabase.auth.signOut()}>
+          Log out
+        </button>
+      </div>
+    );
+  }
+ 
+  // ---------- Not logged in ----------
+  return (
+    <form className="card login" onSubmit={logIn}>
+      <div className="fields">
+        <div className="grow">
+          <label htmlFor="email">Email</label>
+          <input id="email" type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </div>
+        <div className="grow">
+          <label htmlFor="password">Password (6+ characters)</label>
+          <input id="password" type="password" required minLength={6} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </div>
+      </div>
+      <div className="actions">
+        <button type="submit">Log in</button>
+        <button type="button" className="ghost" onClick={signUp}>
+          Create account
+        </button>
+      </div>
+      {note && <p className="status">{note}</p>}
+    </form>
+  );
+}
+ 
 export default function App() {
   // ---------- STATE: what the page remembers ----------
+  const [user, setUser] = useState(null); // who is logged in (null = nobody)
+  const [blocked, setBlocked] = useState(false); // true when the database says "log in first"
   const [expenses, setExpenses] = useState([]); // rows the database sends back
   const [status, setStatus] = useState("Loading expenses...");
   const [spentOn, setSpentOn] = useState(today());
@@ -59,19 +136,36 @@ export default function App() {
  
     if (error) {
       setExpenses([]);
+      if (error.code === "42501") {
+        // "Permission denied": the database won't show anything until you log in
+        setBlocked(true);
+        setStatus("");
+        return;
+      }
       setStatus("Couldn't load expenses: " + error.message);
       return;
     }
+    setBlocked(false);
     setExpenses(data);
     setStatus(data.length === 0 ? "No expenses yet. Add your first one below." : "");
   }
  
-  // Load the expenses once, when the page opens
+  // ---------- AUTH: track who is logged in ----------
   useEffect(() => {
-    if (supabase) loadExpenses();
+    if (!supabase) return;
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => data.subscription.unsubscribe(); // clean up when the page closes
   }, []);
  
+  // Reload whenever someone logs in or out, because what you may see can change
+  useEffect(() => {
+    if (supabase) loadExpenses();
+  }, [user?.id]);
+ 
   // ---------- WRITE: add an expense ----------
+  // We don't send user_id. Once the rules are in place, the database fills it in from the login.
   async function addExpense(event) {
     event.preventDefault(); // stop the browser from reloading the page
     setStatus("Saving...");
@@ -80,11 +174,31 @@ export default function App() {
       .insert({ spent_on: spentOn, vendor: vendor.trim(), category, amount: Number(amount) });
  
     if (error) {
-      setStatus("Couldn't save: " + error.message);
+      setStatus(error.code === "42501" ? "Log in to add expenses." : "Couldn't save: " + error.message);
       return;
     }
     setVendor("");
     setAmount("");
+    loadExpenses();
+  }
+ 
+  // ---------- DELETE: the database only allows deleting your own ----------
+  async function deleteExpense(id) {
+    const { data, error } = await supabase
+      .from("expenses")
+      .delete()
+      .eq("id", id)
+      .select(); // ask for the deleted rows back, so we can tell if it worked
+ 
+    if (error) {
+      setStatus("Couldn't delete: " + error.message);
+      return;
+    }
+    if (data.length === 0) {
+      // RLS quietly blocked it: no error, but nothing was deleted
+      setStatus("Nothing was deleted. You can only delete your own expenses.");
+      return;
+    }
     loadExpenses();
   }
  
@@ -127,7 +241,15 @@ export default function App() {
         </div>
       </header>
  
-      <>
+      <LoginForm user={user} />
+ 
+      {blocked ? (
+        <section className="card locked">
+          <h2>Your expenses are private</h2>
+          <p>Log in or create an account to see and add your expenses.</p>
+        </section>
+      ) : (
+        <>
           {/* ---------- KPI tiles: the headline numbers ---------- */}
           <section className="kpis">
             <div className="card kpi hero">
@@ -229,6 +351,7 @@ export default function App() {
                       <th>Vendor</th>
                       <th>Category</th>
                       <th className="num">Amount</th>
+                      <th><span className="sr-only">Actions</span></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -243,6 +366,13 @@ export default function App() {
                           </span>
                         </td>
                         <td className="num amount">{money(e.amount)}</td>
+                        <td className="num action">
+                          {/* Only show Delete on YOUR expenses. This is just convenience.
+                              The REAL protection is the RLS policy in the database. */}
+                          {user && e.user_id === user.id && (
+                            <button className="ghost small" onClick={() => deleteExpense(e.id)}>Delete</button>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -250,7 +380,8 @@ export default function App() {
               </div>
             </section>
           )}
-      </>
+        </>
+      )}
     </main>
   );
 }
